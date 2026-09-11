@@ -70,5 +70,9 @@ int main(int argc, char **argv) {
    * in the prompt explains each required system interface.
    */
 
+   for(int i = 0; i < N; i++) {
+    printf("Hey I'm number %d\n",i);
+   }
+
   return 0;
 }
