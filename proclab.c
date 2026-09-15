@@ -25,6 +25,8 @@ static void print_usage(FILE *out, const char *program) {
   fprintf(out, "Usage: %s <N>\n", program);
 }
 
+// Stores the int for child count in *count_out
+// returns 1 if successful, 0 if failed
 static int parse_child_count(const char *text, int *count_out) {
   errno = 0;
   char *end = NULL;
