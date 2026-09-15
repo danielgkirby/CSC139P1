@@ -72,9 +72,18 @@ int main(int argc, char **argv) {
    * in the prompt explains each required system interface.
    */
 
-   for(int i = 0; i < N; i++) {
-    printf("Hey I'm number %d\n",i);
-   }
+  // 1. Allocate storage for child records.
+  Child children = malloc(child_count * sizeof(Child));
+
+  if (children == NULL){
+    perror("malloc");
+    return 1
+  }
+
+  // 2. Fork child_count children.
+  for(int i=0; i<child_count; i++){
+    printf("Hey I'm number %d\n", i);
+  }
 
   return 0;
 }
