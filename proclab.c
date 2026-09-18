@@ -18,6 +18,7 @@
 typedef struct {
   pid_t pid;
   int expected_exit;
+  int zombie_observed;
 } Child;
 
 // Provided argument-handling code. Read and understand it before continuing.
@@ -73,17 +74,57 @@ int main(int argc, char **argv) {
    */
 
   // 1. Allocate storage for child records.
-  Child children = malloc(child_count * sizeof(Child));
+  Child *children = malloc((size_t)child_count * sizeof(*children));
 
   if (children == NULL){
     perror("malloc");
-    return 1
+    return 1;
   }
 
   // 2. Fork child_count children.
+  int spawnedChildren = 0;
+
   for(int i=0; i<child_count; i++){
-    printf("Hey I'm number %d\n", i);
+    int expected_exit = 10 + i;
+        
+    pid_t pid = fork();
+
+    if (pid < 0) {
+      perror("fork");
+
+      // Reap any children that were already created
+      for(int j=0; j<spawnedChildren; j++){
+        waitpid(children[j].pid, NULL, 0);
+      }
+
+      free(children);
+      return 1;
+    }
+
+    if (pid == 0) {
+      // This is the child process
+      char exit_text[16];
+      snprintf(exit_text, sizeof(exit_text), "%d", expected_exit);
+      execl(WORKER_PATH, WORKER_NAME, exit_text, (char *)NULL);
+
+      // execl() only returns if it fails
+      perror("execl");
+      _exit(127);
+    }
+
+    // Only the parent can reach this section and run this code
+    children[i].pid = pid;
+    children[i].expected_exit = expected_exit;
+    spawnedChildren++;
+
+    printf("SPAWN index =%d pid=%d expected_exit=%d\n",
+           i, pid, expected_exit);
   }
 
+  for (int i = 0; i < spawnedChildren; i++) {
+    waitpid(children[i].pid, NULL, 0);
+  }
+
+  free(children);
   return 0;
 }
