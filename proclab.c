@@ -133,7 +133,7 @@ int main(int argc, char **argv) {
   Child *children = calloc((size_t)child_count, sizeof(*children));
 
   if (children == NULL){
-    perror("malloc");
+    perror("calloc");
     return 1;
   }
 
@@ -174,8 +174,8 @@ int main(int argc, char **argv) {
     children[i].zombie_observed = 0;
     spawned_children++;
 
-    printf("SPAWN index=%d pid=%d expected_exit=%d\n",
-           i, pid, expected_exit);
+    printf("SPAWN index=%d pid=%ld expected_exit=%d\n",
+           i, (long)pid, expected_exit);
   }
 
   //Poll every child until they are all zombies -----------------------------------------------------
@@ -251,13 +251,61 @@ int main(int argc, char **argv) {
     delay.tv_sec = 0;
     delay.tv_nsec = POLL_INTERVAL_MS * 1000000L;
 
-    nanosleep(&delay, NULL);
+    nanosleep(&delay, NULL);    
+  }
+  
+  // REAPS ZOMBIES ---------------------------------------------------------------------------
+  int reaped_children = 0;
+  int failure = 0;
 
+  for (int i = 0; i < spawned_children; i++) {
+    int status;
+    pid_t waited_pid;
+
+    do {
+      waited_pid = waitpid(children[i].pid, &status, 0);
+    } while (waited_pid == -1 && errno == EINTR);
+
+    if (waited_pid == -1) {
+      perror("waitpid");
+      failure = 1;
+      continue;
+    }
+
+    reaped_children++;
+
+    if (WIFEXITED(status)) {
+      int actual_exit = WEXITSTATUS(status);
+
+      printf("REAP index=%d pid=%ld exit=%d\n",
+            i, (long)waited_pid, actual_exit);
+
+      if (actual_exit != children[i].expected_exit) {
+        fprintf(stderr,
+                "Unexpected exit status for pid %ld: expected %d, got %d\n",
+                (long)waited_pid, children[i].expected_exit, actual_exit);
+        failure = 1;
+      }
+    } else if (WIFSIGNALED(status)) {
+      fprintf(stderr, "Child pid %ld terminated by signal %d\n",
+              (long)waited_pid, WTERMSIG(status));
+      failure = 1;
+    } else {
+      fprintf(stderr, "Child pid %ld terminated unexpectedly\n",
+              (long)waited_pid);
+      failure = 1;
+    }
   }
 
+  free(children);
 
+  if (failure) {
+    return 1;
+  }
 
-  
+  printf("DONE spawned=%d reaped=%d\n",
+        spawned_children, reaped_children);
 
-  
+  return 0;
+
 }
