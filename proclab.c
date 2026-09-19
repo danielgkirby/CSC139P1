@@ -42,6 +42,62 @@ static int parse_child_count(const char *text, int *count_out) {
   return 1;
 }
 
+// helper function
+static int read_process_status(pid_t pid, char *name_out, size_t name_size,
+                               char *state_out) {
+  char path[64];
+
+  // written is the length of the path
+  // snprintf saves the path to path.
+  int written = snprintf(path, sizeof(path), "/proc/%ld/stat", (long)pid);
+
+  // checks to make sure written isnt negative or too big
+  if (written < 0 || (size_t)written >= sizeof(path)) {
+    return 0;
+  }
+
+  FILE *file = fopen(path, "r");
+
+  if (file == NULL) {
+    return 0;
+  }
+
+  char line[1024];
+
+  // reads /proc/<pid>/stat into line
+  if (fgets(line, sizeof(line), file) == NULL) {
+    fclose(file);
+    return 0;
+  }
+
+  fclose(file);
+
+  //find first (
+  char *open_paren = strchr(line, '(');
+  //find LAST )
+  char *close_paren = strrchr(line, ')');
+
+  if (open_paren == NULL || close_paren == NULL ||
+      close_paren <= open_paren) {
+    return 0;
+  }
+
+  size_t name_length = (size_t)(close_paren - open_paren - 1);
+
+  if (name_length >= name_size) {
+    return 0;
+  }
+
+  memcpy(name_out, open_paren + 1, name_length);
+  name_out[name_length] = '\0';
+
+  if (sscanf(close_paren + 1, " %c", state_out) != 1) {
+    return 0;
+  }
+
+  return 1;
+}
+
 int main(int argc, char **argv) {
   // Keep parent output in deterministic order, even when redirected to a file.
   setvbuf(stdout, NULL, _IONBF, 0);
@@ -82,7 +138,7 @@ int main(int argc, char **argv) {
   }
 
   // 2. Fork child_count children.
-  int spawnedChildren = 0;
+  int spawned_children = 0;
 
   for(int i=0; i<child_count; i++){
     int expected_exit = 10 + i;
@@ -93,7 +149,7 @@ int main(int argc, char **argv) {
       perror("fork");
 
       // Reap any children that were already created
-      for(int j=0; j<spawnedChildren; j++){
+      for(int j=0; j<spawned_children; j++){
         waitpid(children[j].pid, NULL, 0);
       }
 
@@ -115,16 +171,92 @@ int main(int argc, char **argv) {
     // Only the parent can reach this section and run this code
     children[i].pid = pid;
     children[i].expected_exit = expected_exit;
-    spawnedChildren++;
+    spawned_children++;
 
     printf("SPAWN index =%d pid=%d expected_exit=%d\n",
            i, pid, expected_exit);
   }
 
-  for (int i = 0; i < spawnedChildren; i++) {
+  //Poll every child until they are all zombies
+  int zombie_count = 0;
+  struct timespec start_time;
+
+  // error checking for clock error
+  if (clock_gettime(CLOCK_MONOTONIC, &start_time) == -1){
+    perror("clock_gettime");
+
+    for (int i = 0; i < spawned_children; i++) {
     waitpid(children[i].pid, NULL, 0);
+    }
+
+    free(children);
+    return 1;
   }
 
-  free(children);
-  return 0;
+  while(zombie_count < spawned_children){
+    for(int i = 0 ; i < spawned_children){
+      // if zombie is already observed, skip this iteration and continue the loop
+      if (children[1].zombie_observed){
+        continue;
+      }
+      // zombie has not yet been observed
+      char process_name[64];
+      char process_state;
+
+      if (read_process_status(children[i].pid, process_name, sizeof(process_name), &process_state) && strcmp(process_name, WORKER_NAME) == 0 && process_state == 'Z'){
+        children[i].zombie_observed = 1;
+        zombie_count++;
+
+        // Prints new zombie that is observed
+        printf("ZOMBIE index=%d pid=%ld name=%s state=%c\n",
+             i, (long)children[i].pid, process_name, process_state);
+      }
+    }
+
+    if (zombie_count == spawned_children) {
+      break;
+    }
+
+    struct timespec current_time;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &current_time) == -1) {
+      perror("clock_gettime");
+
+      for (int i = 0; i < spawned_children; i++) {
+        waitpid(children[i].pid, NULL, 0);
+      }
+
+      free(children);
+      return 1;
+    }
+
+    long elapsed_ms =
+      (current_time.tv_sec - start_time.tv_sec) * 1000L +
+      (current_time.tv_nsec - start_time.tv_nsec) / 1000000L;
+
+    //timeout condition
+    if (elapsed_ms >= ZOMBIE_TIMEOUT_MS) {
+      fprintf(stderr, "Timed out waiting for children to become zombies\n");
+      
+      for (int i = 0; i < spawned_children; i++) {
+        waitpid(children[i].pid, NULL, 0);
+      }
+
+      free(children);
+      return 1;
+    }
+    
+    struct timespec delay;
+    delay.tv_sec = 0;
+    delay.tv_nsec = POLL_INTERVAL_MS * 1000000L;
+
+    nanosleep(&delay, NULL);
+
+  }
+
+
+
+  
+
+  
 }
