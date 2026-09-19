@@ -129,8 +129,8 @@ int main(int argc, char **argv) {
    * in the prompt explains each required system interface.
    */
 
-  // 1. Allocate storage for child records.
-  Child *children = malloc((size_t)child_count * sizeof(*children));
+  // 1. Allocate storage for child records. --------------------------------------------------------------------------------
+  Child *children = calloc((size_t)child_count, sizeof(*children));
 
   if (children == NULL){
     perror("malloc");
@@ -171,13 +171,14 @@ int main(int argc, char **argv) {
     // Only the parent can reach this section and run this code
     children[i].pid = pid;
     children[i].expected_exit = expected_exit;
+    children[i].zombie_observed = 0;
     spawned_children++;
 
-    printf("SPAWN index =%d pid=%d expected_exit=%d\n",
+    printf("SPAWN index=%d pid=%d expected_exit=%d\n",
            i, pid, expected_exit);
   }
 
-  //Poll every child until they are all zombies
+  //Poll every child until they are all zombies -----------------------------------------------------
   int zombie_count = 0;
   struct timespec start_time;
 
@@ -196,7 +197,7 @@ int main(int argc, char **argv) {
   while(zombie_count < spawned_children){
     for(int i = 0 ; i < spawned_children; i++){
       // if zombie is already observed, skip this iteration and continue the loop
-      if (children[1].zombie_observed){
+      if (children[i].zombie_observed){
         continue;
       }
       // zombie has not yet been observed
