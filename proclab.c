@@ -194,7 +194,7 @@ int main(int argc, char **argv) {
   }
 
   while(zombie_count < spawned_children){
-    for(int i = 0 ; i < spawned_children){
+    for(int i = 0 ; i < spawned_children; i++){
       // if zombie is already observed, skip this iteration and continue the loop
       if (children[1].zombie_observed){
         continue;
